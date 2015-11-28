@@ -10,6 +10,9 @@ We then solved the problem using appropriate machine learning algorithms and met
 Python requirements:
 
     csv
+    numpy
+    random
+    sklearn
     ...
 
 
