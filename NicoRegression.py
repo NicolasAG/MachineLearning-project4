@@ -4,6 +4,7 @@ import csv
 import random
 import numpy as np
 from sklearn.decomposition import PCA
+from sklearn.preprocessing import PolynomialFeatures
 from sklearn.feature_selection import SelectKBest
 from sklearn.feature_selection import RFECV
 from sklearn.feature_selection import f_regression
@@ -76,15 +77,19 @@ class NicoRegression:
     @param f - the file to open.
     @param lasso - decide if lasso regularization is done (default=False).
     @param ridge - decide if ridge regularization is done (default=False).
-    @param k - the number of features to keep for k-best feature selection.
+    @param k - the number of features to keep for k-best feature selection (default=not activated).
     @param rfe - decide if we do Recursive Feature Elimination (default=False).
+    @param d - the dimension of linear regression (default=1)
     @param shuffle_data - decide if the data is shuffled (default=True).
     @param test - decide if we are testing, so return only 10 examples (default=False).
     """
-    def __init__(self, f, lasso=False, ridge=False, k=-1, rfe=False, shuffle_data=True, test=False):
+    def __init__(self, f, lasso=False, ridge=False, k=-1, rfe=False, d=1, shuffle_data=True, test=False):
         data = readData(f, shuffle=shuffle_data, test=test)
         self.X = np.matrix([example[0] for example in data])
         self.Y = np.matrix([example[1] for example in data])
+
+        if d > 1:
+            self.X = PolynomialFeatures(degree=d).fit_transform(self.X)
 
         if k > 0 and k < 19:
             self.X = SelectKBest(f_regression, k=k).fit_transform(self.X, self.Y)
