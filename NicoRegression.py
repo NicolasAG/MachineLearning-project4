@@ -3,10 +3,11 @@
 import csv
 import random
 import numpy as np
-from sklearn.decomposition import PCA
+from datetime import datetime
 from sklearn.preprocessing import PolynomialFeatures
 from sklearn.feature_selection import SelectKBest
 from sklearn.feature_selection import RFECV
+from sklearn.feature_selection import RFE
 from sklearn.feature_selection import f_regression
 from sklearn import linear_model
 
@@ -34,7 +35,7 @@ def readData(path, shuffle=False, test=False):
             if example == 0:    # first line assumed to be title line,
                 num_features = len(row) # so get the number of features.
             
-            if test and example > 10:
+            if test and example > 100:
                 break
 
             elif example > 0:   # for all other lines, grab the data.
@@ -64,6 +65,8 @@ attributes:
 - clf : linear regression estimator
 - X : the whole X matrix
 - Y : the whole Y matrix
+- Y1 : the motor updrs target
+- Y2 : the total updrs target
 - k : the number of partitions for X and Y.
 - Xpartitions : array of the form [array of features #1, ..., array of features #k].
 - Ypartitions : array of the form [array of targets #1, ..., array of targets #k].
@@ -77,52 +80,62 @@ class NicoRegression:
     @param f - the file to open.
     @param lasso - decide if lasso regularization is done (default=False).
     @param ridge - decide if ridge regularization is done (default=False).
+    @param alpha - the amount of weight size penalty for lasso & ridge (default=use CV).
     @param k - the number of features to keep for k-best feature selection (default=not activated).
     @param rfe - decide if we do Recursive Feature Elimination (default=False).
     @param d - the dimension of linear regression (default=1)
     @param shuffle_data - decide if the data is shuffled (default=True).
     @param test - decide if we are testing, so return only 10 examples (default=False).
     """
-    def __init__(self, f, lasso=False, ridge=False, k=-1, rfe=False, d=1, shuffle_data=True, test=False):
+    def __init__(self, f, lasso=False, ridge=False, alpha=None, k=-1, rfe=False, d=1, shuffle_data=True, separate_targets=False, test=False):
         data = readData(f, shuffle=shuffle_data, test=test)
         self.X = np.matrix([example[0] for example in data])
         self.Y = np.matrix([example[1] for example in data])
+        self.Y1 = self.Y[:,0]
+        self.Y2 = self.Y[:,1]
+        print "X shape:", self.X.shape
+        print "Y shape:", self.Y.shape
+        print "Y1 shape:", self.Y1.shape
+        print "Y2 shape:", self.Y2.shape
 
-        if d > 1:
-            self.X = PolynomialFeatures(degree=d).fit_transform(self.X)
-
-        if k > 0 and k < 19:
-            self.X = SelectKBest(f_regression, k=k).fit_transform(self.X, self.Y)
-
+        # Create the regressor with or without regularization
         alphas = [1e-10, 1e-9, 1e-8, 1e-7, 1e-6, 1e-5, 1e-4, 1e-3, 1e-2, 1e-1, 1.0, 1e+1]
         if ridge:
             print "RIDGE regularization"
-            # generalized Cross-Validation over many different alphas
-            self.clf = linear_model.RidgeCV(alphas=alphas)
+            if alpha:
+                self.clf = linear_model.Ridge(alpha=alpha)
+            else:
+                # generalized Cross-Validation over many different alphas
+                self.clf = linear_model.RidgeCV(alphas=alphas)
         elif lasso:
             print "LASSO regularization"
-            # generalized Cross-Validation over many different alphas
-            self.clf = linear_model.MultiTaskLassoCV(alphas=alphas)
+            if alpha:
+                self.clf = linear_model.MultiTaskLasso(alpha=alpha)
+            else:
+                # generalized Cross-Validation over many different alphas
+                self.clf = linear_model.MultiTaskLassoCV(alphas=alphas)
         else:
             print "no regularization"
             self.clf = linear_model.LinearRegression() # regular linear regression without regularization.
 
+        # If rfe, perform recursive feature elimination with cross validation.
         if rfe:
-            self.clf = RFECV(self.clf) # do recursive feature elimination with cross validation.
+            print "RFE!"
+            if k>0 and k<19:
+                self.clf = RFE(self.clf, k)
+            else:
+                self.clf = RFECV(self.clf)
 
+        # If 0<k<19, perform k-best feature selection
+        if k > 0 and k < 19:
+            print "K-BEST: %d" % k
+            self.X = SelectKBest(f_regression, k=k).fit_transform(self.X, np.squeeze(np.asarray(self.Y2)))
 
+        # If d>1, perform feature construction of degree 'd'
+        if d > 1:
+            self.X = PolynomialFeatures(degree=d).fit_transform(self.X)
+            print "#of features: %d" % self.X.shape[1]
 
-    """
-    Apply PCA to the X matrix.
-    @param m - the number of parameters we want to keep.
-    """
-    def doPCA(self, m):
-        if m>0 and m<self.X.shape[1] and m<self.X.shape[0]:
-            p = PCA(n_components=m)
-            self.X = np.matrix(p.fit_transform(self.X))
-            assert self.X.shape == (5875,m)
-        else:
-            print "ERROR: number of features has to be between 1 and %d" % min(self.X.shape)-1
 
     """
     Partitions the data into k subsets of size len(X)/k.
@@ -143,16 +156,22 @@ class NicoRegression:
         #  which leaves space for our 'size' data items (at i,i+1,...,i+size-1) in one subset.
         self.Xpartitions = [self.X[i:i+size] for i in range(0, len(self.X), size)]
         self.Ypartitions = [self.Y[i:i+size] for i in range(0, len(self.Y), size)]
+        self.Y1Partitions = [self.Y1[i:i+size] for i in range(0, len(self.Y1), size)]
+        self.Y2Partitions = [self.Y2[i:i+size] for i in range(0, len(self.Y2), size)]
         
         # because len(X) / k might not be an perfect integer, we may have fewer examples in the last subset.
         if len(self.X)%k != 0:
             print "WARNING: %d is not a multiple of %d. Skipping %d elements." % (len(self.X), k, len(self.X)%k)
             self.Xpartitions = self.Xpartitions[:-1]
             self.Ypartitions = self.Ypartitions[:-1]
+            self.Y1Partitions = self.Y1Partitions[:-1]
+            self.Y2Partitions = self.Y2Partitions[:-1]
         print "produced %d subsets of %d elements each." % (k, size)
 
         assert len(self.Xpartitions) == k
         assert len(self.Ypartitions) == k
+        assert len(self.Y1Partitions) == k
+        assert len(self.Y2Partitions) == k
         print "done partitioning."
 
     """
@@ -161,13 +180,15 @@ class NicoRegression:
     W[i] uses Ytrain = Ypartitions[:i][i+1:]
     So W[i] is the best weight vector learned with all data EXCEPT partition i.
     err = average of | (W[i]^t * X) - Y |
+    @param separate_targets - decide if prediction on target 1 is used for prediction of target 2 (default=False).
     """
-    def generateWs(self):
+    def generateWs(self, separate_targets):
         print "generating Ws and Err..."
         #self.Ws = []
         self.err = [0.0, 0.0] # 2 errors for the two targets.
 
         for i in range(self.k):
+
             Xtrain = self.Xpartitions[:i]+self.Xpartitions[i+1:]
             Xtrain = reduce(lambda x,y: np.concatenate((x,y)), Xtrain)
             Xtest = self.Xpartitions[i]
@@ -176,28 +197,105 @@ class NicoRegression:
             Ytrain = reduce(lambda x,y: np.concatenate((x,y)), Ytrain)
             Ytest = self.Ypartitions[i]
 
-            self.clf.fit(Xtrain, Ytrain) # learn the model.
-            if self.clf.alpha_:
-                print "  %i - alpha: %e" %(i, self.clf.alpha_)
-            if self.clf.n_features_:
-                print "  Optimal number of features : %d" % self.clf.n_features_
+            if separate_targets:
+                Ytrain_motor = Ytrain[:,0]
+                Ytest_motor = Ytest[:,0]
+                # Fit the model for MOTOR target.
+                #self.clf.fit(Xtrain, Ytrain_motor)
+                self.clf.fit(Xtrain, np.squeeze(np.asarray(Ytrain_motor)))
+                if hasattr(self.clf, 'alpha_'):
+                    print "  %i - motor alpha: %e" %(i, self.clf.alpha_)
+                else:
+                    print "  %i - motor" % i
+                #print "  Optimal number of features : %d" % self.clf.n_features_
+                testing_motorPredictions = np.matrix(self.clf.predict(Xtest))
+                #print np.power(testing_motorPredictions-Ytest_motor.T, 2)
+                #print np.power(testing_motorPredictions-Ytest_motor.T, 2).mean(0)
+                mse = np.power(testing_motorPredictions-Ytest_motor.T, 2).mean(1)
+                self.err[0] += mse
 
-            #W = np.matrix(self.clf.coef_).getT() # get the best Weights.
-            #self.Ws.append(W) # append to Ws.
+                Ytrain_total = Ytrain[:,1]
+                Ytest_total = Ytest[:,1]
+                # Add prediction of motor to Xtrain and Xtest to better predict total.
+                #print Xtrain.shape
+                training_motorPredictions = np.matrix(self.clf.predict(Xtrain))
+                Xtrain = np.append(Xtrain, training_motorPredictions.T, axis=1)
+                Xtest = np.append(Xtest, testing_motorPredictions.T, axis=1)
+                #print Xtrain.shape
+                # Fit the model for TOTAL target.
+                if hasattr(self.clf, 'alpha'):
+                    print "  reset alpha to 0.1"
+                    self.clf = self.clf.set_params(alpha=1e-1) # reset alpha to 0.1 for the 2nd prediction (found by CrossValidation)
+                #self.clf.fit(Xtrain, Ytrain_total)
+                self.clf.fit(Xtrain, np.squeeze(np.asarray(Ytrain_total)))
+                if hasattr(self.clf, 'alpha_'):
+                    print "  %i - total alpha: %e" %(i, self.clf.alpha_)
+                else:
+                    print "  %i - total" % i
+                #print "  Optimal number of features : %d" % self.clf.n_features_
+                #print np.power(self.clf.predict(Xtest)-Ytest_total.T, 2)
+                #print np.power(self.clf.predict(Xtest)-Ytest_total.T, 2).mean(0)
+                mse = np.power(self.clf.predict(Xtest)-Ytest_total.T, 2).mean(1)
+                self.err[1] += mse
 
-            mse = np.power(self.clf.predict(Xtest)-Ytest, 2).mean(0) # get the mean squarred error.
-            self.err += mse # add mse to the overall error.
+            else:
+                self.clf.fit(Xtrain, Ytrain) # learn the model.
+                if hasattr(self.clf, 'alpha_'):
+                    print "  %i - alpha: %e" %(i, self.clf.alpha_)
+                else:
+                    print "  %i" % i
+                #print "  Optimal number of features : %d" % self.clf.n_features_
+                mse = np.power(self.clf.predict(Xtest)-Ytest, 2).mean(0) # get the mean squarred error.
+                self.err += mse # add mse to the overall error.
+
 
         self.err = map(lambda x:x/self.k, self.err)
         print "done."
 
-nico = NicoRegression("./data.csv", lasso=True) # 5875 elements, try ridge/lasso/k(1-18)/rfe
-
-print "X shape:", nico.X.shape
-print "Y shape:", nico.Y.shape
-nico.partition(5875) #try with 5, 25, 47, 125, 235, 1175, 5875
-
-nico.generateWs()
-print nico.err
 
 
+sepTargets = [False, True]
+regul = ['ridge']#['no', 'lasso', 'ridge']
+deg = [4]#[1,2,3]
+
+for sep in sepTargets:
+    for reg in regul:
+        for d in deg:
+
+            a1 = None
+            if reg=='lasso' and d==1:
+                a1 = 1e-6
+            elif reg=='lasso' and (d==2 or d==3):
+                a1 = 1e-4
+            elif reg=='lasso' and d>3:
+                a1 = 1e-3
+            elif reg=='ridge' and d==1:
+                a1 = 1e-7
+            elif reg=='ridge' and d==2:
+                a1 = 1e-3
+            elif reg=='ridge' and d>2:
+                a1 = 1e-1
+
+            for k in range(10,19):
+                print "~~~~~~~~~~~~~~~~~~~~~~~~~~~~~"
+                print "separate targets:", sep==True
+                print "regularization: ", reg
+                print "degree: ", d
+                print "alpha: %e" % a1
+                print "k: %d" % k
+                start = datetime.now()
+
+                nico = None
+                if reg == 'no':
+                    nico = NicoRegression("./data.csv", d=d, k=k) # 5875 elements, try ridge/lasso/k(1-18)/rfe
+                elif reg == 'lasso':
+                    nico = NicoRegression("./data.csv", lasso=True, alpha=a1, d=d, k=k) # 5875 elements, try ridge/lasso/k(1-18)/rfe
+                elif reg == 'ridge':
+                    nico = NicoRegression("./data.csv", ridge=True, alpha=a1, d=d, k=k) # 5875 elements, try ridge/lasso/k(1-18)/rfe
+
+                nico.partition(5) #try with 5, 25, 47, 125, 235, 1175, 5875
+
+                nico.generateWs(sep)
+                print nico.err
+
+                print datetime.now() - start
