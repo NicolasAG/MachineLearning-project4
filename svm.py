@@ -23,7 +23,7 @@ example of data: [
     ...
 ]
 """
-def readData(path, shuffle=False, test=False):
+def readData(path, shuffle=True, test=False):
     data = []
     num_features = 0
     with open(path, 'rb') as datafile:
@@ -73,33 +73,39 @@ class NicoSVM:
     """
     Constructor function.
     @param f - the file to open.
-    @param k - the number of features to keep for k-best feature selection (default=not activated).
-    @param rfe - decide if we do Recursive Feature Elimination (default=False).
+    @param C - tradeoff misclassification of training examples against simplicity of the decision surface.
+    @param gamma - gamma of the RBF kernel (how much influence a single training example has).
     @param d - the dimension of features (default=1)
+    @param k - the number of features to keep for k-best feature selection (default=not activated).
     @param shuffle_data - decide if the data is shuffled (default=True).
     @param test - decide if we are testing, so return only 10 examples (default=False).
     """
-    def __init__(self, f, k=-1, rfe=False, d=1, shuffle_data=True, test=False):
+    def __init__(self, f, C, gamma, d=1, k=-1, shuffle_data=True, test=False):
         data = readData(f, shuffle=shuffle_data, test=test)
         self.X = np.matrix([example[0] for example in data])
         self.Y = np.matrix([example[1] for example in data])
         self.Y1 = self.Y[:,0]
         self.Y2 = self.Y[:,1]
-        print "X shape:", self.X.shape
-        print "Y shape:", self.Y.shape
-        print "Y1 shape:", self.Y1.shape
-        print "Y2 shape:", self.Y2.shape
+        #print "X shape:", self.X.shape
+        #print "Y shape:", self.Y.shape
+        #print "Y1 shape:", self.Y1.shape
+        #print "Y2 shape:", self.Y2.shape
         
-        self.clf = svm.SVR(kernel='poly', degree=2) # try different kernels?
+        self.clf = svm.SVR(kernel='rbf', C=C, gamma=gamma, cache_size=1000)
 
         if d > 1:
+            print "polynomial features of degree %d" % d
             self.X = PolynomialFeatures(degree=d).fit_transform(self.X)
 
-        if k > 0 and k < 19:
-            self.X = SelectKBest(f_regression, k=k).fit_transform(self.X, self.Y)
+        if k > 1:
+            print "select %d best features" % k
+            self.X = SelectKBest(f_regression, k=k).fit_transform(self.X, np.squeeze(np.asarray(self.Y2)))
 
-        if rfe:
-            self.clf = RFECV(self.clf) # do recursive feature elimination with cross validation.
+        #print "X shape:", self.X.shape
+        #print "Y shape:", self.Y.shape
+        #print "Y1 shape:", self.Y1.shape
+        #print "Y2 shape:", self.Y2.shape
+
 
 
     """
@@ -163,10 +169,7 @@ class NicoSVM:
             Ytest_motor = Ytest[:,0]
             # Fit the model for MOTOR target.
             self.clf.fit(Xtrain, np.squeeze(np.asarray(Ytrain_motor)))
-            if hasattr(self.clf, 'alpha_'):
-                print "  %i - motor alpha: %e" %(i, self.clf.alpha_)
-            else:
-                print "  %i - motor" % i
+            print "  %i - motor" % i
             #print "  Optimal number of features : %d" % self.clf.n_features_
             testing_motorPredictions = np.matrix(self.clf.predict(Xtest))
             mse = np.power(testing_motorPredictions-Ytest_motor.T, 2).mean(1)
@@ -180,10 +183,7 @@ class NicoSVM:
             Xtest = np.append(Xtest, testing_motorPredictions.T, axis=1)
             # Fit the model for TOTAL target.
             self.clf.fit(Xtrain, np.squeeze(np.asarray(Ytrain_total)))
-            if hasattr(self.clf, 'alpha_'):
-                print "  %i - total alpha: %e" %(i, self.clf.alpha_)
-            else:
-                print "  %i - total" % i
+            print "  %i - total" % i
             #print "  Optimal number of features : %d" % self.clf.n_features_
             mse = np.power(self.clf.predict(Xtest)-Ytest_total.T, 2).mean(1)
             self.err[1] += mse
@@ -191,13 +191,37 @@ class NicoSVM:
         self.err = map(lambda x:x/self.k, self.err)
         print "done."
 
-start = datetime.now()
+'''USE RBF kernel
+cf: http://scikit-learn.org/stable/modules/svm.html#parameters-of-the-rbf-kernel
+'''
+#C_range = [1e2, 1e3, 1e4, 1e5]
+#gamma_range = [1e-6, 1e-5]
 
-nico = NicoSVM("./data.csv") # 5875 elements
+#for C in C_range:
+#    for gamma in gamma_range:
+C = 1000.0
+gamma = 0.00001
+d = 2
+k_max = 210
+for k in range(54,k_max+1):
+    print "RBF kernel"
+    print "C: %e" % C
+    print "gamma: %e" % gamma
+    print "#of features: %d" % k
 
-nico.partition(5) #try with 5, 25, 47, 125, 235, 1175, 5875
+    start = datetime.now()
 
-nico.generateWs()
-print nico.err
+    nico = NicoSVM("./data.csv", C=C, gamma=gamma, d=d, k=k) # 5875 elements
+    nico.partition(5) #try with 5, 25, 47, 125, 235, 1175, 5875
+    nico.generateWs()
+    print nico.err
 
-print datetime.now() - start
+    with open('out.csv', 'a') as csvfile:
+        spamwriter = csv.writer(csvfile)
+        spamwriter.writerow([
+            "k=%d" % k,
+            float(np.asarray(nico.err[0])[0][0]),
+            float(np.asarray(nico.err[1])[0][0])
+        ])
+
+    print datetime.now() - start

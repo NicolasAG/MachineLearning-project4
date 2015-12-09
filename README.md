@@ -7,16 +7,50 @@ We then solved the problem using appropriate machine learning algorithms and met
 
 # Requirements:
 
-Python requirements:
+Python libraries:
 
+	datetime
+	random
     csv
     numpy
-    random
     sklearn
     ...
 
 
 # To run the algorithms:
+
+ - Linear & Polynomial Regression:
+
+    + File structure requirements:
+    ```
+    	data.csv
+        NicoRegression.py
+    ```
+    
+    + Check NicoRegression.py for parameter selection, and when ready run the following command: ```python NicoRegression.py```
+
+
+ - SVM:
+    
+    + File structure requirements:
+    ```
+        data.csv
+        svm.py
+    ```
+
+    + Check svm.py for parameter selection, and when ready run the following command: ```python svm.py```
+
+
+ - Neural Network:
+
+    + File structure requirements:
+    ```
+        data.csv
+        ...
+    ```
+
+    + ...
+
 
 
 # Authors:

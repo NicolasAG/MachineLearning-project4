@@ -44,7 +44,7 @@ def readData(path, shuffle=False, test=False):
                     print row
                     continue
 
-                features = map(float,row[1:4]+row[6:]) # skip column 0, 4 and 5.
+                features = map(float,row[1:4]+row[6:]) # skip columns 0, 4 and 5.
                 target = map(float,row[4:6]) # targets are the 4th and 5th columns.
                 
                 assert len(features)+len(target)+1 == num_features
@@ -127,7 +127,7 @@ class NicoRegression:
                 self.clf = RFECV(self.clf)
 
         # If 0<k<19, perform k-best feature selection
-        if k > 0 and k < 19:
+        if k > 0 and k <= 19:
             print "K-BEST: %d" % k
             self.X = SelectKBest(f_regression, k=k).fit_transform(self.X, np.squeeze(np.asarray(self.Y2)))
 
@@ -254,9 +254,9 @@ class NicoRegression:
 
 
 
-sepTargets = [False, True]
+sepTargets = [False]#, True]
 regul = ['ridge']#['no', 'lasso', 'ridge']
-deg = [4]#[1,2,3]
+deg = [3]#[1,2,3]
 
 for sep in sepTargets:
     for reg in regul:
@@ -276,26 +276,26 @@ for sep in sepTargets:
             elif reg=='ridge' and d>2:
                 a1 = 1e-1
 
-            for k in range(10,19):
-                print "~~~~~~~~~~~~~~~~~~~~~~~~~~~~~"
-                print "separate targets:", sep==True
-                print "regularization: ", reg
-                print "degree: ", d
-                print "alpha: %e" % a1
-                print "k: %d" % k
-                start = datetime.now()
+            for k in range(10,20)[::-1]:
+            print "~~~~~~~~~~~~~~~~~~~~~~~~~~~~~"
+            print "separate targets:", sep==True
+            print "regularization: ", reg
+            print "degree: ", d
+            print "alpha: %e" % a1
+            print "k: %d" % k
+            start = datetime.now()
 
-                nico = None
-                if reg == 'no':
-                    nico = NicoRegression("./data.csv", d=d, k=k) # 5875 elements, try ridge/lasso/k(1-18)/rfe
-                elif reg == 'lasso':
-                    nico = NicoRegression("./data.csv", lasso=True, alpha=a1, d=d, k=k) # 5875 elements, try ridge/lasso/k(1-18)/rfe
-                elif reg == 'ridge':
-                    nico = NicoRegression("./data.csv", ridge=True, alpha=a1, d=d, k=k) # 5875 elements, try ridge/lasso/k(1-18)/rfe
+            nico = None
+            if reg == 'no':
+                nico = NicoRegression("./data.csv", d=d, k=k)
+            elif reg == 'lasso':
+                nico = NicoRegression("./data.csv", lasso=True, alpha=a1, d=d, k=k)
+            elif reg == 'ridge':
+                nico = NicoRegression("./data.csv", ridge=True, alpha=a1, d=d, k=k)
 
-                nico.partition(5) #try with 5, 25, 47, 125, 235, 1175, 5875
+            nico.partition(5) #try with 5, 25, 47, 125, 235, 1175, 5875
 
-                nico.generateWs(sep)
-                print nico.err
+            nico.generateWs(sep)
+            print nico.err
 
-                print datetime.now() - start
+            print datetime.now() - start
