@@ -46,10 +46,10 @@ Python libraries:
     + File structure requirements:
     ```
         data.csv
-        ...
+        NN_ML.py
     ```
 
-    + ...
+    + Check NN_ML.py for parameter selection, and when ready run the following command: ```python NN_ML.py```
 
 
 
